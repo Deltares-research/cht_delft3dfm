@@ -17,9 +17,9 @@ import math
 from pyproj import CRS
 from pyproj import Transformer
 
-from cht.misc.geometry import RegularGrid
-from cht.misc.geometry import Point
-from cht.misc.deltares_ini import IniStruct
+from cht_utils.geometry import RegularGrid
+from cht_utils.geometry import Point
+from cht_utils.deltares_ini import IniStruct
 
 from pathlib import Path
 from hydrolib.core.dflowfm.mdu.models import FMModel
@@ -744,7 +744,7 @@ class Delft3DFMBoundary():
         loc_file = os.path.join(path,
                                 self.locationfile)
 
-        from cht.misc.pli_file import read_pli_file
+        from cht_utils.pli_file import read_pli_file
         d = read_pli_file(loc_file)
 #        d = plifile(loc_file)
         name0 = os.path.split(loc_file)[-1][0:-4]
