@@ -7,23 +7,21 @@ Created on Sat May 15 08:08:40 2021
 import os
 import pandas as pd
 import datetime
-#import gdal
-#import subprocess
 import numpy as np
-#from matplotlib import pyplot as plt
 from pandas.tseries.offsets import DateOffset
 
 import math
 from pyproj import CRS
 from pyproj import Transformer
 
-from cht_utils.geometry import RegularGrid
-from cht_utils.geometry import Point
-from cht_utils.deltares_ini import IniStruct
 
 from pathlib import Path
 from hydrolib.core.dflowfm.mdu.models import FMModel
 import hydrolib.core.dflowfm as hcdfm
+
+from cht_utils.geometry import RegularGrid
+from cht_utils.geometry import Point
+from cht_utils.deltares_ini import IniStruct
 
 class Delft3DFM:
     
@@ -700,36 +698,7 @@ class Delft3DFM:
         # for entry in mdu.dict:
         #     setattr(self, entry["name"], entry["default"])
         
-class SfincsGrid():
 
-    def __init__(self, x0, y0, dx, dy, nx, ny, rotation):
-        self.geometry = RegularGrid(x0, y0, dx, dy, nx, ny, rotation)
-
-    # def plot(self,ax):
-    #     self.geometry.plot(ax)
-
-    # def corner_coordinates(self):
-    #     x,y = self.geometry.grid_coordinates_corners()
-    #     return x, y
-
-    # def centre_coordinates(self):
-    #     x,y = self.geometry.grid_coordinates_centres()
-    #     return x, y
-
-class SfincsDepth():
-    def __init__(self):
-        self.value = []
-        self.geometry = []
-    def plot(self,ax):
-        pass
-    def read(self):
-        pass
-
-class SfincsMask():
-    def __init__(self):
-        self.msk = []
-    def plot(self,ax):
-        pass
 
 class Delft3DFMBoundary():
 
