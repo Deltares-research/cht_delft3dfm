@@ -13,7 +13,8 @@ from pandas.tseries.offsets import DateOffset
 import math
 from pyproj import CRS
 from pyproj import Transformer
-
+import shapely
+import geopandas as gpd
 
 from pathlib import Path
 from hydrolib.core.dflowfm.mdu.models import FMModel
@@ -22,6 +23,7 @@ import hydrolib.core.dflowfm as hcdfm
 from cht_utils.geometry import RegularGrid
 from cht_utils.geometry import Point
 from cht_utils.deltares_ini import IniStruct
+from .grid import Delft3DFMGrid
 
 class Delft3DFM:
     
@@ -38,9 +40,14 @@ class Delft3DFM:
         self.obstacle                 = []
         self.meteo                    = Delft3DFMMeteo()
         
+        self.input = FMModel()
+        
         if input_file:
             self.path = os.path.dirname(input_file)
             self.load(input_file)
+
+        # To Do: separate module
+        self.observation_point_gdf   = gpd.GeoDataFrame()
 
     def load(self, inputfile):
         # Reads sfincs.inp and attribute files
@@ -393,29 +400,70 @@ class Delft3DFM:
                 
         self.observation_point.append(ObservationPoint(x, y, name, crs=None))
 
-    def read_observation_points(self, file_name=None):
+    def delete_observation_point(self, name_or_index):
+        if type(name_or_index) == str:
+            name = name_or_index
+            for index, row in self.observation_point_gdf.iterrows():
+                if row["name"] == name:
+                    self.observation_point_gdf = self.observation_point_gdf.drop(index).reset_index(drop=True)
+                    del self.observation_point[name]
+                    return
+            print("Point " + name + " not found!")    
+        else:
+            index = name_or_index
+            if len(self.observation_point_gdf.index) < index + 1:
+                print("Index exceeds length!")    
+            self.observation_point_gdf = self.observation_point_gdf.drop(index).reset_index(drop=True)
+            del self.observation_point[index]
+            return
+        
+    def add_observation_point_gdf(self, x, y, name):
+
+        point = shapely.geometry.Point(x, y)
+        gdf_list = []
+        d = {"name": name, "long_name": None, "geometry": point}
+        gdf_list.append(d)
+        gdf_new = gpd.GeoDataFrame(gdf_list, crs=self.crs)
+        self.observation_point_gdf = pd.concat([self.observation_point_gdf, gdf_new], ignore_index=True)
+
+    def read_observation_points(self, path=None, file_list=None):
         
         self.observation_point = []
 
-        if not file_name:
+        if not path:
+            path=self.path
+
+        if not file_list:
             if not self.input.output.obsfile:
                 return
-            file_name = os.path.join(self.path,
-                                     self.input.output.obsfile[0].filepath)
-                            
-        if not os.path.exists(file_name):
-            print("Warning : file " + file_name + " does not exist !")
-            return
+            file_list=[]
+            for i,v in enumerate(self.input.output.obsfile):
+                file_list.append(os.path.join(path, v.filepath))
         
-        # Loop through points
-        df = pd.read_csv(file_name, index_col=False, header=None,
-             delim_whitespace=True, names=['x', 'y', 'name'])
-        
-        for ind in range(len(df.x.values)):
-            point = ObservationPoint(df.x.values[ind],
-                                     df.y.values[ind],
-                                     name=str(df.name.values[ind]))
-            self.observation_point.append(point)
+        gdf_list = []
+
+        # Loop through files
+        for file_name in file_list:
+            if not os.path.exists(file_name):
+                print("Warning : file " + file_name + " does not exist !")
+                return
+            df = pd.read_csv(file_name, index_col=False, header=None,
+                delim_whitespace=True, names=['x', 'y', 'name'])
+            
+            # Loop through points
+            for ind in range(len(df.x.values)):
+                name = str(df.name.values[ind])
+                x = df.x.values[ind]
+                y = df.y.values[ind]
+                point = ObservationPoint(x,
+                                        y,
+                                        name=name)
+                self.observation_point.append(point)
+                
+                point2 = shapely.geometry.Point(x, y)
+                d = {"name": name, "long_name": None, "geometry": point2}
+                gdf_list.append(d)
+        self.observation_point_gdf = gpd.GeoDataFrame(gdf_list, crs=self.crs)
 
     def write_observation_points(self, file_name=None, path=None):
 
