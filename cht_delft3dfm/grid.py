@@ -28,12 +28,15 @@ from datashader.utils import export_image
 class Delft3DFMGrid:
     def __init__(self, model):
         self.model = model
-        self.lon_min = None
-        self.lon_max = None
-        self.lat_min = None
-        self.lat_max = None
+        self.x0 = None
+        self.y0 = None
+        self.nmax = None
+        self.mmax = None
         self.data = None
         self.exterior = gpd.GeoDataFrame()
+        self.refinement_depth = False
+        self.refinement_polygon = []
+        self.min_edge_size = None
 
     def read(self, file_name=None):
         if file_name == None:
@@ -62,17 +65,16 @@ class Delft3DFMGrid:
         ds.to_netcdf(file_name)
 
     def build(self,
-              lon_min,
-              lon_max,
-              lat_min,
-              lat_max,
+              x0,
+              y0,
+              nmax,
+              mmax,
               dx=0.1,
               dy=0.1,
-              refinement = 0,
-              refinement_polygons=None,
-              min_edge_size = 300,
-              delete_withcoastlines=0,
-              delete_withpolygon=None):
+              bathymetry_list=None,
+              refinement_depth = 0,
+              refinement_polygon=None,
+              min_edge_size = 500):
 
         print("Building mesh ...")
 
@@ -83,70 +85,104 @@ class Delft3DFMGrid:
 
         print("Getting cells ...")
 
-        self.lon_min = lon_min
-        self.lon_max = lon_max
-        self.lat_min = lat_min
-        self.lat_max = lat_max
+        self.x0 = x0
+        self.y0 = y0
         self.dx = dx
         self.dy = dy
-        self.refinement_polygons = refinement_polygons
+        self.nmax = nmax
+        self.mmax = mmax
+        self.refinement_depth = refinement_depth
+        self.refinement_polygon = refinement_polygon
+        self.min_edge_size = min_edge_size
+
+        # if bathymetry_list:
+        #     self.bathymetry_list= bathymetry_list
         # self.refinement_polygons = refinement_polygons
 
         # Make regular grid
         # self.get_regular_grid()
-        self.mk = dfmt.make_basegrid(lon_min, lon_max, lat_min, lat_max, dx=dx, dy=dx, crs=self.model.crs)
-
-        if refinement:
-            if refinement_polygons:
-                # Refine based on polygon input
-                pass
-            else
-                # Refine based on depth
-                bathy = self.get_bathymetry()
-                dfmt.refine_basegrid(mk=self.mk, data_bathy_sel=bathy, min_edge_size=min_edge_size)
-
-        # Options to delete land area
-        if delete_withcoastlines:
-            dfmt.meshkernel_delete_withcoastlines(mk=self.mk, res='h')
-
-        if delete_withpolygon:
-            dfmt.meshkernel_delete_withgdf(mk=self.mk, coastlines_gdf=delete_withpolygon)
-        
-        # convert to xugrid
+        self.lon_min, self.lat_max = x0, y0
+        self.lon_max = x0 + mmax*dx
+        self.lat_min = y0 - nmax*dy
+        self.mk = dfmt.make_basegrid(self.lon_min, self.lon_max, self.lat_min, self.lat_max, dx=dx, dy=dy, crs=self.model.crs)
         self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
-        self.add_attributes()
+
+        self.refine(bathymetry_list)
+
+        # convert to xugrid
+        # self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+        # self.add_attributes()
 
         # Interpolate bathymetry onto the grid
-        self.set_bathymetry()
-
-
-
-        
+        if bathymetry_list:
+            self.set_bathymetry(bathymetry_list)
+        else:
+            print("No depth values assigned. Please select bathymetry ...")
 
         # Initialize data arrays 
-        self.initialize_data_arrays()
+        # self.initialize_data_arrays()
 
         # Refine all cells 
-        if refinement_polygons is not None:
-            self.refine_mesh()
+        # if refinement_polygons is not None:
+        #     self.refine_mesh()
 
         # Initialize data arrays
-        self.initialize_data_arrays()
+        # self.initialize_data_arrays()
 
         # Get all neighbor arrays (mu, mu1, mu2, nu, nu1, nu2)
-        self.get_neighbors()
+        # self.get_neighbors()
 
         # Get uv points
-        self.get_uv_points()
+        # self.get_uv_points()
 
         # Create xugrid dataset 
-        self.to_xugrid()
+        # self.to_xugrid()
         
 #        self.get_exterior()
 
-        self.clear_temporary_arrays()
+        # self.clear_temporary_arrays()
 
         print("Time elapsed : " + str(time.time() - start) + " s")
+
+    def get_bathymetry(self, bathymetry_sets, method='grid', dxmin=None, quiet=True):
+        from cht_bathymetry.bathymetry_database import bathymetry_database
+
+        if not quiet:
+            print("Getting bathymetry data ...")
+            pass
+
+        if not dxmin:
+            dxmin=self.dx/2
+
+        # Make new grid based on outer edges of xx and yy and dxmin
+        lon_grid = np.arange(self.lon_min-1, self.lon_max+1, dxmin)
+        lat_grid = np.arange(self.lat_min-1, self.lat_max+1, dxmin)
+        if method == 'points':
+            lon, lat = np.meshgrid(lon_grid, lat_grid)
+            lon_grid = lon.ravel()
+            lat_grid = lat.ravel()
+
+        if self.data.grid.crs.is_geographic:
+            dxmin = dxmin * 111000.0
+
+        # Get bathymetry on grid
+        zz = bathymetry_database.get_bathymetry_on_grid(lon_grid,
+                                                    lat_grid,
+                                                    self.model.crs,
+                                                    bathymetry_sets,
+                                                    coords=method,
+                                                    dxmin=dxmin)
+
+        # Make xarray data array
+        if method == 'points':
+            bathy = xr.DataArray(zz,         
+                                coords={'lon': ('points', lon_grid), 'lat': ('points', lat_grid)},
+                                dims=['points'])
+        elif method == 'grid':
+            bathy = xr.DataArray(zz,         
+                    coords={'lon': lon_grid, 'lat': lat_grid},
+                    dims=['lat', 'lon'])
+        return bathy
 
     def set_bathymetry(self, bathymetry_sets, quiet=True):
         
@@ -154,45 +190,69 @@ class Delft3DFMGrid:
 
         if not quiet:
             print("Getting bathymetry data ...")
-
-        nlev = self.nr_refinement_levels
         
-        # Check if coordinates already exists
-        xy = self.data.grid.face_coordinates
-        zz = np.full(self.nr_cells, np.nan)
-                        
-        # Loop through all levels
-        for ilev in range(nlev):
+        # Check which type of grid
+        xx= self.data.obj.mesh2d_node_x
+        yy = self.data.obj.mesh2d_node_y
 
-            if not quiet:
-                print("Processing bathymetry level " + str(ilev + 1) + " of " + str(nlev) + " ...")
-            
-            ifirst = self.ifirst[ilev]
-            if ilev<nlev - 1:
-                ilast = self.ifirst[ilev + 1]
-            else:
-                ilast = self.nr_cells - 1
-            
-            # Make blocks off cells in this level only
-            cell_indices_in_level = np.arange(ifirst, ilast + 1, dtype=int)
-                  
-            xz  = xy[cell_indices_in_level, 0]
-            yz  = xy[cell_indices_in_level, 1]
-            dxmin = self.dx/2**ilev
+        dxmin = self.dx/2
 
-            if self.data.grid.crs.is_geographic:
-                dxmin = dxmin * 111000.0
+        if self.data.grid.crs.is_geographic:
+            dxmin = dxmin * 111000.0
 
-            zgl = bathymetry_database.get_bathymetry_on_points(xz,
-                                                               yz,
-                                                               dxmin,
-                                                               self.model.crs,
-                                                               bathymetry_sets)
-            zz[cell_indices_in_level] = zgl
-
+        # Get bathy
+        zz = bathymetry_database.get_bathymetry_on_points(xx,
+                                                    yy,
+                                                    dxmin,
+                                                    self.model.crs,
+                                                    bathymetry_sets)             
         ugrid2d = self.data.grid
-        self.data["z"] = xu.UgridDataArray(xr.DataArray(data=zz, dims=[ugrid2d.face_dimension]), ugrid2d)
+        self.data["mesh2d_node_z"] = xu.UgridDataArray(xr.DataArray(data=zz, dims=[ugrid2d.node_dimension]), ugrid2d)
 
+    def refine(self, bathymetry_list):
+        if self.refinement_depth:
+            # Refine based on depth
+            self.refine_depth(bathymetry_list)
+        if self.refinement_polygon:
+            # Refine based on polygon input
+            self.refine_polygon()
+        # self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+            
+    def refine_polygon(self, gdf=None):
+        from meshkernel import GeometryList
+        from meshkernel import MeshRefinementParameters
+
+        if gdf is None:
+            gdf= self.refinement_polygon
+
+        # refine with polygon
+        for geom in gdf.geometry:
+            x, y = np.array(geom.exterior.xy)
+            geometry_list = GeometryList(x, y)
+            mrp = MeshRefinementParameters(min_edge_size=self.min_edge_size)
+            self.mk.mesh2d_refine_based_on_polygon(polygon=geometry_list,  mesh_refinement_params=mrp)
+        self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+        self.get_datashader_dataframe()
+
+    def refine_depth(self, bathymetry_list):
+        if bathymetry_list:
+            self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+            bathy = self.get_bathymetry(bathymetry_list, dxmin=self.min_edge_size/11000, method= 'grid')
+            dfmt.refine_basegrid(mk=self.mk, data_bathy_sel=bathy, min_edge_size=self.min_edge_size)
+            self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+        else:
+            print("Please select bathymetry first ...")
+        self.get_datashader_dataframe()
+
+
+    def delete_cells(self, delete_withcoastlines=True, delete_withpolygon=None):
+        
+        # Options to delete land area
+        if delete_withcoastlines:
+            dfmt.meshkernel_delete_withcoastlines(mk=self.mk, res='h')
+        if delete_withpolygon:
+            dfmt.meshkernel_delete_withgdf(mk=self.mk, coastlines_gdf=delete_withpolygon)
+        
     def snap_to_grid(self, polyline, max_snap_distance=1.0):
         if len(polyline) == 0:
             return gpd.GeoDataFrame()

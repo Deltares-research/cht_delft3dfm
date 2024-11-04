@@ -32,8 +32,9 @@ class Delft3DFM:
 #        self.epsg                     = epsg
         # self.mdu                      = MDU()
         # self.input                    = Delft3DFMInput(self.mdu)
+        self.path                     = os.getcwd()
         self.crs                      = crs
-        self.grid                     = None
+        self.grid                     = Delft3DFMGrid(self)
         self.mask                     = None
         self.boundary                 = []
         self.observation_point        = []
@@ -627,7 +628,11 @@ class Delft3DFM:
         yp = [ yg[0,0], yg[0,-1], yg[-1,-1], yg[-1,0], yg[0,0] ]
         
         return xp, yp
-        
+
+    def clear_spatial_attributes(self):
+        # Clear all spatial data
+        self.grid                 = Delft3DFMGrid(self)
+
     def make_index_tiles(self, path, zoom_range=None):
         
         from tiling import deg2num
