@@ -72,6 +72,7 @@ class Delft3DFMGrid:
               dx=0.1,
               dy=0.1,
               bathymetry_list=None,
+              bathymetry_database=None,
               refinement_depth = 0,
               refinement_polygon=None,
               min_edge_size = 500):
@@ -101,13 +102,13 @@ class Delft3DFMGrid:
 
         # Make regular grid
         # self.get_regular_grid()
-        self.lon_min, self.lat_max = x0, y0
+        self.lon_min, self.lat_min = x0, y0
         self.lon_max = x0 + mmax*dx
-        self.lat_min = y0 - nmax*dy
+        self.lat_max = y0 + nmax*dy
         self.mk = dfmt.make_basegrid(self.lon_min, self.lon_max, self.lat_min, self.lat_max, dx=dx, dy=dy, crs=self.model.crs)
         self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
 
-        self.refine(bathymetry_list)
+        self.refine(bathymetry_list, bathymetry_database)
 
         # convert to xugrid
         # self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
@@ -115,7 +116,7 @@ class Delft3DFMGrid:
 
         # Interpolate bathymetry onto the grid
         if bathymetry_list:
-            self.set_bathymetry(bathymetry_list)
+            self.set_bathymetry(bathymetry_list, bathymetry_database)
         else:
             print("No depth values assigned. Please select bathymetry ...")
 
@@ -144,8 +145,8 @@ class Delft3DFMGrid:
 
         print("Time elapsed : " + str(time.time() - start) + " s")
 
-    def get_bathymetry(self, bathymetry_sets, method='grid', dxmin=None, quiet=True):
-        from cht_bathymetry.bathymetry_database import bathymetry_database
+    def get_bathymetry(self, bathymetry_sets, bathymetry_database=None, method='grid', dxmin=None, quiet=True):
+        # from cht_bathymetry.bathymetry_database import bathymetry_database
 
         if not quiet:
             print("Getting bathymetry data ...")
@@ -184,9 +185,9 @@ class Delft3DFMGrid:
                     dims=['lat', 'lon'])
         return bathy
 
-    def set_bathymetry(self, bathymetry_sets, quiet=True):
+    def set_bathymetry(self, bathymetry_sets, bathymetry_database=None, quiet=True):
         
-        from cht_bathymetry.bathymetry_database import bathymetry_database
+        # from cht_bathymetry.bathymetry_database import bathymetry_database
 
         if not quiet:
             print("Getting bathymetry data ...")
@@ -209,10 +210,10 @@ class Delft3DFMGrid:
         ugrid2d = self.data.grid
         self.data["mesh2d_node_z"] = xu.UgridDataArray(xr.DataArray(data=zz, dims=[ugrid2d.node_dimension]), ugrid2d)
 
-    def refine(self, bathymetry_list):
+    def refine(self, bathymetry_list, bathymetry_database):
         if self.refinement_depth:
             # Refine based on depth
-            self.refine_depth(bathymetry_list)
+            self.refine_depth(bathymetry_list, bathymetry_database)
         if self.refinement_polygon:
             # Refine based on polygon input
             self.refine_polygon()
@@ -234,25 +235,61 @@ class Delft3DFMGrid:
         self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
         self.get_datashader_dataframe()
 
-    def refine_depth(self, bathymetry_list):
+    def refine_depth(self, bathymetry_list, bathymetry_database):
         if bathymetry_list:
             self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
-            bathy = self.get_bathymetry(bathymetry_list, dxmin=self.min_edge_size/11000, method= 'grid')
+            bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin=self.min_edge_size/11000, method= 'grid')
             dfmt.refine_basegrid(mk=self.mk, data_bathy_sel=bathy, min_edge_size=self.min_edge_size)
             self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
         else:
             print("Please select bathymetry first ...")
         self.get_datashader_dataframe()
 
-
-    def delete_cells(self, delete_withcoastlines=True, delete_withpolygon=None):
-        
+    def delete_cells(self, delete_withcoastlines=False, delete_withpolygon=None):
         # Options to delete land area
         if delete_withcoastlines:
             dfmt.meshkernel_delete_withcoastlines(mk=self.mk, res='h')
-        if delete_withpolygon:
+        if delete_withpolygon is not None:
             dfmt.meshkernel_delete_withgdf(mk=self.mk, coastlines_gdf=delete_withpolygon)
-        
+        self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+        self.get_datashader_dataframe()
+
+    def generate_bnd(self, bnd_withcoastlines=False, bnd_withpolygon=None):
+        from shapely import MultiPolygon, LineString, MultiLineString
+        from shapely.ops import linemerge
+
+        # Options to delete land area
+        if bnd_withcoastlines:
+            bnd_gdf = dfmt.generate_bndpli_cutland(mk=self.mk, res='h', buffer=0.01)
+        if bnd_withpolygon is not None:
+            mesh_bnds = self.mk.mesh2d_get_mesh_boundaries_as_polygons()
+            if mesh_bnds.geometry_separator in mesh_bnds.x_coordinates:
+                raise Exception('use dfmt.generate_bndpli_cutland() on an uncut grid')
+            mesh_bnds_xy = np.c_[mesh_bnds.x_coordinates,mesh_bnds.y_coordinates]
+            pol_gdf = bnd_withpolygon
+    
+            meshbnd_ls = LineString(mesh_bnds_xy)
+            pol_mp = MultiPolygon(pol_gdf.geometry.tolist())
+            bnd_ls = meshbnd_ls.intersection(pol_mp)
+    
+            #attempt to merge MultiLineString to single LineString
+            if isinstance(bnd_ls,MultiLineString):
+                print('attemting to merge lines in MultiLineString to single LineString (if connected)')
+                bnd_ls = linemerge(bnd_ls)
+    
+            #convert MultiLineString/LineString to GeoDataFrame
+            if isinstance(bnd_ls,MultiLineString):
+                bnd_gdf = gpd.GeoDataFrame(geometry=list(bnd_ls.geoms))
+            elif isinstance(bnd_ls,LineString):
+                bnd_gdf = gpd.GeoDataFrame(geometry=[bnd_ls])
+            bnd_gdf.crs = pol_gdf.crs
+    
+        bnd_gdf_interp = dfmt.interpolate_bndpli(bnd_gdf,res=0.06)
+        pli_polyfile = dfmt.geodataframe_to_PolyFile(bnd_gdf_interp, name='flow_bnd')
+        poly_file = os.path.join(self.model.path, 'bnd.pli')
+        pli_polyfile.save(poly_file)
+        return bnd_gdf_interp
+
     def snap_to_grid(self, polyline, max_snap_distance=1.0):
         if len(polyline) == 0:
             return gpd.GeoDataFrame()

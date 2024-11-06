@@ -632,6 +632,7 @@ class Delft3DFM:
     def clear_spatial_attributes(self):
         # Clear all spatial data
         self.grid                 = Delft3DFMGrid(self)
+        self.bnd_gdf              = gpd.GeoDataFrame()
 
     def make_index_tiles(self, path, zoom_range=None):
         
