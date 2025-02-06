@@ -19,11 +19,13 @@ import geopandas as gpd
 from pathlib import Path
 from hydrolib.core.dflowfm.mdu.models import FMModel
 import hydrolib.core.dflowfm as hcdfm
+import dfm_tools as dfmt
 
 from cht_utils.geometry import RegularGrid
 from cht_utils.geometry import Point
 from cht_utils.deltares_ini import IniStruct
 from .grid import Delft3DFMGrid
+from .boundary_conditions import Delft3DFMBoundaryConditions
 
 class Delft3DFM:
     
@@ -35,6 +37,7 @@ class Delft3DFM:
         self.path                     = os.getcwd()
         self.crs                      = crs
         self.grid                     = Delft3DFMGrid(self)
+        self.boundary_conditions      = Delft3DFMBoundaryConditions(self)
         self.mask                     = None
         self.boundary                 = []
         self.observation_point        = []
@@ -489,7 +492,31 @@ class Delft3DFM:
                 fid.write(string)
             fid.close()
         
-            
+    ### Observation cross sections ###
+    def read_observation_crs(self, path=None, file_name=None):
+
+        if not path:
+            path=self.path
+    
+        if not file_name:
+            file_name = self.input.output.crsfile[0].filepath
+   
+        data = hcdfm.PolyFile(os.path.join(path, file_name)) #works with polyfile
+        self.observation_crs_gdf = dfmt.PolyFile_to_geodataframe_linestrings(data,crs=None) 
+    
+    def write_observation_crs(self, path=None, file_name=None):
+
+        if not path:
+            path=self.path
+    
+        if not file_name:
+            file_name = self.input.output.crsfile[0].filepath
+        
+        file_name = os.path.join(path, file_name)    
+
+        pli_polyfile = dfmt.geodataframe_to_PolyFile(self.observation_crs_gdf)
+        pli_polyfile.save(file_name)
+
     ### Output ###
 
     def read_timeseries_output(self,
@@ -632,7 +659,7 @@ class Delft3DFM:
     def clear_spatial_attributes(self):
         # Clear all spatial data
         self.grid                 = Delft3DFMGrid(self)
-        self.bnd_gdf              = gpd.GeoDataFrame()
+        self.boundary_conditions  = Delft3DFMBoundaryConditions(self)
 
     def make_index_tiles(self, path, zoom_range=None):
         
