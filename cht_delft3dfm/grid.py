@@ -254,41 +254,41 @@ class Delft3DFMGrid:
         self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
         self.get_datashader_dataframe()
 
-    def generate_bnd(self, bnd_withcoastlines=False, bnd_withpolygon=None):
-        from shapely import MultiPolygon, LineString, MultiLineString
-        from shapely.ops import linemerge
+    # def generate_bnd(self, bnd_withcoastlines=False, bnd_withpolygon=None):
+    #     from shapely import MultiPolygon, LineString, MultiLineString
+    #     from shapely.ops import linemerge
 
-        # Options to delete land area
-        if bnd_withcoastlines:
-            bnd_gdf = dfmt.generate_bndpli_cutland(mk=self.mk, res='h', buffer=0.01)
-        if bnd_withpolygon is not None:
-            mesh_bnds = self.mk.mesh2d_get_mesh_boundaries_as_polygons()
-            if mesh_bnds.geometry_separator in mesh_bnds.x_coordinates:
-                raise Exception('use dfmt.generate_bndpli_cutland() on an uncut grid')
-            mesh_bnds_xy = np.c_[mesh_bnds.x_coordinates,mesh_bnds.y_coordinates]
-            pol_gdf = bnd_withpolygon
+    #     # Options to delete land area
+    #     if bnd_withcoastlines:
+    #         bnd_gdf = dfmt.generate_bndpli_cutland(mk=self.mk, res='h', buffer=0.01)
+    #     if bnd_withpolygon is not None:
+    #         mesh_bnds = self.mk.mesh2d_get_mesh_boundaries_as_polygons()
+    #         if mesh_bnds.geometry_separator in mesh_bnds.x_coordinates:
+    #             raise Exception('use dfmt.generate_bndpli_cutland() on an uncut grid')
+    #         mesh_bnds_xy = np.c_[mesh_bnds.x_coordinates,mesh_bnds.y_coordinates]
+    #         pol_gdf = bnd_withpolygon
     
-            meshbnd_ls = LineString(mesh_bnds_xy)
-            pol_mp = MultiPolygon(pol_gdf.geometry.tolist())
-            bnd_ls = meshbnd_ls.intersection(pol_mp)
+    #         meshbnd_ls = LineString(mesh_bnds_xy)
+    #         pol_mp = MultiPolygon(pol_gdf.geometry.tolist())
+    #         bnd_ls = meshbnd_ls.intersection(pol_mp)
     
-            #attempt to merge MultiLineString to single LineString
-            if isinstance(bnd_ls,MultiLineString):
-                print('attemting to merge lines in MultiLineString to single LineString (if connected)')
-                bnd_ls = linemerge(bnd_ls)
+    #         #attempt to merge MultiLineString to single LineString
+    #         if isinstance(bnd_ls,MultiLineString):
+    #             print('attemting to merge lines in MultiLineString to single LineString (if connected)')
+    #             bnd_ls = linemerge(bnd_ls)
     
-            #convert MultiLineString/LineString to GeoDataFrame
-            if isinstance(bnd_ls,MultiLineString):
-                bnd_gdf = gpd.GeoDataFrame(geometry=list(bnd_ls.geoms))
-            elif isinstance(bnd_ls,LineString):
-                bnd_gdf = gpd.GeoDataFrame(geometry=[bnd_ls])
-            bnd_gdf.crs = pol_gdf.crs
+    #         #convert MultiLineString/LineString to GeoDataFrame
+    #         if isinstance(bnd_ls,MultiLineString):
+    #             bnd_gdf = gpd.GeoDataFrame(geometry=list(bnd_ls.geoms))
+    #         elif isinstance(bnd_ls,LineString):
+    #             bnd_gdf = gpd.GeoDataFrame(geometry=[bnd_ls])
+    #         bnd_gdf.crs = pol_gdf.crs
     
-        bnd_gdf_interp = dfmt.interpolate_bndpli(bnd_gdf,res=0.06)
-        pli_polyfile = dfmt.geodataframe_to_PolyFile(bnd_gdf_interp, name='flow_bnd')
-        poly_file = os.path.join(self.model.path, 'bnd.pli')
-        pli_polyfile.save(poly_file)
-        return bnd_gdf_interp
+    #     bnd_gdf_interp = dfmt.interpolate_bndpli(bnd_gdf,res=0.06)
+    #     pli_polyfile = dfmt.geodataframe_to_PolyFile(bnd_gdf_interp, name='flow_bnd')
+    #     poly_file = os.path.join(self.model.path, 'bnd.pli')
+    #     pli_polyfile.save(poly_file)
+    #     return bnd_gdf_interp
 
     def snap_to_grid(self, polyline, max_snap_distance=1.0):
         if len(polyline) == 0:
