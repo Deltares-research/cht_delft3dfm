@@ -24,5 +24,4 @@ dependencies = [
     "datashader",
     "cht-utils",
 	"dfm_tools",
-	"hydrolib"
 ]
