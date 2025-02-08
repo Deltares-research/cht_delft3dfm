@@ -72,3 +72,15 @@ class Delft3DFMBoundaryConditions:
             file_name = os.path.join(self.model.path, 'bnd.pli')
         polyfile_object = hcdfm.PolyFile(file_name)
         self.gdf = dfmt.PolyFile_to_geodataframe_linestrings(polyfile_object, crs='4326')
+
+    def generate_tide(self, tidemodel = 'FES2014', poly_file=None):
+        if not poly_file:
+            poly_file = os.path.join(self.model.path, 'bnd.pli')
+        ext_file_new = os.path.join(self.model.path, 'bc_new.ext')
+
+        ext_new = hcdfm.ExtModel()
+
+        dfmt.interpolate_tide_to_bc(ext_new=ext_new, tidemodel=tidemodel, file_pli=poly_file)
+        ext_new.save(filepath=ext_file_new, path_style='windows')
+        return ext_new
+
