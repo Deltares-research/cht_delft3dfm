@@ -23,4 +23,5 @@ dependencies = [
     "toml",
     "datashader",
     "cht-utils",
+	"dfm_tools",
 ]
