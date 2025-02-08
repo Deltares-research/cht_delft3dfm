@@ -40,7 +40,7 @@ class Delft3DFM:
         self.boundary_conditions      = Delft3DFMBoundaryConditions(self)
         self.mask                     = None
         self.boundary                 = []
-        self.observation_point        = []
+        # self.observation_point        = []
         self.obstacle                 = []
         self.meteo                    = Delft3DFMMeteo()
         
@@ -52,6 +52,7 @@ class Delft3DFM:
 
         # To Do: separate module
         self.observation_point_gdf   = gpd.GeoDataFrame()
+        self.observation_line_gdf   = gpd.GeoDataFrame()
 
     def load(self, inputfile):
         # Reads sfincs.inp and attribute files
@@ -114,7 +115,8 @@ class Delft3DFM:
         # d.write(input_file) 
 
         self.input.save(input_file, path_style='windows')      
-                       
+        dfmt.make_paths_relative(input_file)
+
     def read_attribute_files(self):
 
         # Grid
@@ -318,7 +320,7 @@ class Delft3DFM:
     #     for ind, point in enumerate(self.flow_boundary_point):
     #         point.astro = d.section[ind].data
 
-    def write_ext_meteo(self, file_name=None):
+    def write_ext_meteo(self, file_name=None): # Used in CoSMoS
 
         # Write Delft3D-FM ext file (meteo)
         if not file_name:
@@ -400,9 +402,9 @@ class Delft3DFM:
 
     ### Observation points ###
 
-    def add_observation_point(self, x, y, name):
+    # def add_observation_point(self, x, y, name):
                 
-        self.observation_point.append(ObservationPoint(x, y, name, crs=None))
+    #     self.observation_point.append(ObservationPoint(x, y, name, crs=None))
 
     def delete_observation_point(self, name_or_index):
         if type(name_or_index) == str:
@@ -410,7 +412,7 @@ class Delft3DFM:
             for index, row in self.observation_point_gdf.iterrows():
                 if row["name"] == name:
                     self.observation_point_gdf = self.observation_point_gdf.drop(index).reset_index(drop=True)
-                    del self.observation_point[name]
+                    # del self.observation_point[name]
                     return
             print("Point " + name + " not found!")    
         else:
@@ -418,10 +420,10 @@ class Delft3DFM:
             if len(self.observation_point_gdf.index) < index + 1:
                 print("Index exceeds length!")    
             self.observation_point_gdf = self.observation_point_gdf.drop(index).reset_index(drop=True)
-            del self.observation_point[index]
+            # del self.observation_point[index]
             return
         
-    def add_observation_point_gdf(self, x, y, name):
+    def add_observation_point_gdf(self, x, y, name): # Used in CoSMoS -> change to gdf
 
         point = shapely.geometry.Point(x, y)
         gdf_list = []
@@ -430,9 +432,9 @@ class Delft3DFM:
         gdf_new = gpd.GeoDataFrame(gdf_list, crs=self.crs)
         self.observation_point_gdf = pd.concat([self.observation_point_gdf, gdf_new], ignore_index=True)
 
-    def read_observation_points(self, path=None, file_list=None):
+    def read_observation_points(self, path=None, file_list=None): # Used in CoSMoS
         
-        self.observation_point = []
+        # self.observation_point = []
 
         if not path:
             path=self.path
@@ -459,10 +461,10 @@ class Delft3DFM:
                 name = str(df.name.values[ind])
                 x = df.x.values[ind]
                 y = df.y.values[ind]
-                point = ObservationPoint(x,
-                                        y,
-                                        name=name)
-                self.observation_point.append(point)
+                # point = ObservationPoint(x,
+                #                         y,
+                #                         name=name)
+                # self.observation_point.append(point)
                 
                 point2 = shapely.geometry.Point(x, y)
                 d = {"name": name, "long_name": None, "geometry": point2}
@@ -479,21 +481,30 @@ class Delft3DFM:
             
         file_name = os.path.join(path, file_name)    
 
-        if self.crs.is_geographic == 0:    
-            fid = open(file_name, "w")
-            for point in self.observation_point:
-                string = f'{point.geometry.x:12.1f}{point.geometry.y:12.1f}  "{point.name}"\n'
-                fid.write(string)
-            fid.close()
-        else:
-            fid = open(file_name, "w")
-            for point in self.observation_point:
-                string = f'{point.geometry.x:12.6f}{point.geometry.y:12.6f}  "{point.name}"\n'
-                fid.write(string)
-            fid.close()
+        fid = open(file_name, "w")
+        for index, row in self.observation_point_gdf.iterrows():
+            x = row["geometry"].coords[0][0]
+            y = row["geometry"].coords[0][1]
+            name = row["name"]
+            string = f'{x:12.1f}{y:12.1f}  "{name}"\n'
+            fid.write(string)
+        fid.close()
+        
+        # if self.crs.is_geographic == 0:    
+        #     fid = open(file_name, "w")
+        #     for point in self.observation_point:
+        #         string = f'{point.geometry.x:12.1f}{point.geometry.y:12.1f}  "{point.name}"\n'
+        #         fid.write(string)
+        #     fid.close()
+        # else:
+        #     fid = open(file_name, "w")
+        #     for point in self.observation_point:
+        #         string = f'{point.geometry.x:12.6f}{point.geometry.y:12.6f}  "{point.name}"\n'
+        #         fid.write(string)
+        #     fid.close()
         
     ### Observation cross sections ###
-    def read_observation_crs(self, path=None, file_name=None):
+    def read_observation_lines(self, path=None, file_name=None):
 
         if not path:
             path=self.path
@@ -502,9 +513,9 @@ class Delft3DFM:
             file_name = self.input.output.crsfile[0].filepath
    
         data = hcdfm.PolyFile(os.path.join(path, file_name)) #works with polyfile
-        self.observation_crs_gdf = dfmt.PolyFile_to_geodataframe_linestrings(data,crs=None) 
+        self.observation_line_gdf = dfmt.PolyFile_to_geodataframe_linestrings(data,crs=None) 
     
-    def write_observation_crs(self, path=None, file_name=None):
+    def write_observation_lines(self, path=None, file_name=None):
 
         if not path:
             path=self.path
@@ -514,7 +525,7 @@ class Delft3DFM:
         
         file_name = os.path.join(path, file_name)    
 
-        pli_polyfile = dfmt.geodataframe_to_PolyFile(self.observation_crs_gdf)
+        pli_polyfile = dfmt.geodataframe_to_PolyFile(self.observation_line_gdf)
         pli_polyfile.save(file_name)
 
     ### Output ###
@@ -882,12 +893,12 @@ class FlowBoundaryPoint():
         self.data                   = data
         self.astro                  = astro
 
-class ObservationPoint():
+# class ObservationPoint():
 
-    def __init__(self, x, y, name, crs=None):
+#     def __init__(self, x, y, name, crs=None):
         
-        self.name     = name
-        self.geometry = Point(x, y, crs=crs)
+#         self.name     = name
+#         self.geometry = Point(x, y, crs=crs)
 
 class Delft3DFMMeteo():
     
