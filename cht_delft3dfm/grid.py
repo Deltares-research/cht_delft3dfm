@@ -48,7 +48,7 @@ class Delft3DFMGrid:
         self.type = next(iter(self.data.dims.mapping))
         self.nr_cells = self.data.dims[self.type]
         self.get_exterior()
-        crd_dict = self.data["crs"].attrs
+        # crd_dict = self.data["crs"].attrs
         if self.data.grid.projected:
             print("Could not find CRS in netcdf file")   # to do  
         else:

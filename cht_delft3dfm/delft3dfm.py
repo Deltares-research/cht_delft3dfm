@@ -114,8 +114,11 @@ class Delft3DFM:
                 
         # d.write(input_file) 
 
-        self.input.save(input_file, path_style='windows')      
-        dfmt.make_paths_relative(input_file)
+        self.input.save(input_file, path_style='windows') 
+        try:     
+            dfmt.make_paths_relative(input_file)
+        except:
+            pass
 
     def read_attribute_files(self):
 
@@ -502,7 +505,12 @@ class Delft3DFM:
         #         string = f'{point.geometry.x:12.6f}{point.geometry.y:12.6f}  "{point.name}"\n'
         #         fid.write(string)
         #     fid.close()
-        
+    def list_observation_names(self):
+        names = []
+        for index, row in self.observation_point_gdf.iterrows():
+            names.append(row["name"])
+        return names
+      
     ### Observation cross sections ###
     def read_observation_lines(self, path=None, file_name=None):
 
