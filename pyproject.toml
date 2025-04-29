@@ -19,9 +19,9 @@ dependencies = [
     "scipy",
     "xarray",
     "matplotlib",
-	"xugrid",
+    "xugrid",
     "toml",
     "datashader",
     "cht-utils",
-	"dfm_tools",
+    "dfm_tools",
 ]
