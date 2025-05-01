@@ -63,7 +63,7 @@ class Delft3DFM:
         
         # Reads mdu file
         
-        # Get the path of sfincs.inp
+        # Get the path
         self.path = os.path.dirname(input_file)
         self.input = FMModel(input_file)
         
