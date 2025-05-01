@@ -227,10 +227,12 @@ class Delft3DFMGrid:
             gdf= self.refinement_polygon
 
         # refine with polygon
-        for geom in gdf.geometry:
+        for i, geom in enumerate(gdf.geometry):
             x, y = np.array(geom.exterior.xy)
             geometry_list = GeometryList(x, y)
-            mrp = MeshRefinementParameters(min_edge_size=self.min_edge_size)
+            min_edge_size = gdf.loc[i, "min_edge_size"] if "min_edge_size" in gdf.columns else self.min_edge_size
+            mrp = MeshRefinementParameters(min_edge_size=min_edge_size,
+                                            connect_hanging_nodes=False)
             self.mk.mesh2d_refine_based_on_polygon(polygon=geometry_list,  mesh_refinement_params=mrp)
         self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
         self.get_datashader_dataframe()
@@ -239,10 +241,77 @@ class Delft3DFMGrid:
         if bathymetry_list:
             self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
             bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin=self.min_edge_size/11000, method= 'grid')
-            dfmt.refine_basegrid(mk=self.mk, data_bathy_sel=bathy, min_edge_size=self.min_edge_size)
+            dfmt.refine_basegrid(mk=self.mk, data_bathy_sel=bathy, min_edge_size=self.min_edge_size, connect_hanging_nodes=False)
             self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
         else:
             print("Please select bathymetry first ...")
+        self.get_datashader_dataframe()
+
+    def refine_polygon_depth(self, bathymetry_list, bathymetry_database, gdf=None):
+        from meshkernel import GriddedSamples, MeshRefinementParameters, RefinementType
+
+        if gdf is None:
+            gdf = self.refinement_polygon
+
+        if bathymetry_list:
+            self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+
+            for _, row in gdf.iterrows():
+                geom = row.geometry
+                min_edge_size = row.min_edge_size
+
+                bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin=min_edge_size/11000, method= 'grid')
+
+                bounds = geom.bounds
+                bathy_clip = bathy.sel(
+                    lon=slice(bounds[0], bounds[2]),
+                    lat=slice(bounds[1], bounds[3])
+                )
+
+                clipped = (
+                    bathy_clip
+                    .rio.write_crs(self.model.crs)
+                    .rio.set_spatial_dims(x_dim="lon", y_dim="lat")
+                    .rio.clip([geom], crs=self.model.crs)
+                    .where(lambda x: x != 0)
+                )
+
+                # Prepare refinement input
+                gridded_samples = GriddedSamples(
+                    x_coordinates=clipped.lon.to_numpy(),
+                    y_coordinates=clipped.lat.to_numpy(),
+                    values=clipped.to_numpy().flatten()
+                )
+
+                mrp = MeshRefinementParameters(min_edge_size=min_edge_size,
+                                            connect_hanging_nodes=False,
+                                            refinement_type= 1)
+                
+                try:
+                    self.mk.mesh2d_refine_based_on_gridded_samples(
+                        gridded_samples=gridded_samples,
+                        mesh_refinement_params=mrp,
+                    )
+                except:
+                    print("Refinement failed. Please check the minimum edge size.")
+                    continue    
+
+                self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+        else:
+            print("Please select bathymetry first ...")
+
+        self.get_datashader_dataframe()
+
+    def connect_nodes(self, bathymetry_list, bathymetry_database):
+        # Connect hanging nodes (work around since separate function is not available in meshkernel)
+        if bathymetry_list:
+            self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+            bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin=self.min_edge_size/11000, method= 'grid')
+            dfmt.refine_basegrid(mk=self.mk, data_bathy_sel=bathy, min_edge_size=1000000, connect_hanging_nodes=True)
+            self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+        else:
+            print("Please select bathymetry first ...")
+
         self.get_datashader_dataframe()
 
     def delete_cells(self, delete_withcoastlines=False, delete_withpolygon=None):
@@ -251,6 +320,7 @@ class Delft3DFMGrid:
             dfmt.meshkernel_delete_withcoastlines(mk=self.mk, res='h')
         if delete_withpolygon is not None:
             dfmt.meshkernel_delete_withgdf(mk=self.mk, coastlines_gdf=delete_withpolygon)
+        dfmt.meshkernel_get_illegalcells(mk=self.mk)
         self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
         self.get_datashader_dataframe()
 
