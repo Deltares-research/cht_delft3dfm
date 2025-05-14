@@ -123,7 +123,9 @@ class Delft3DFM:
     def read_attribute_files(self):
 
         # Grid
-#        self.grid = SfincsGrid()
+        self.grid = Delft3DFMGrid(self)
+        if self.input.geometry.netfile.filepath:
+            self.grid.read(self.input.geometry.netfile.filepath)
 
         # External forcing (boundary conditions)
         if self.input.external_forcing.extforcefilenew:
@@ -141,7 +143,12 @@ class Delft3DFM:
         # Observation points
         self.read_observation_points()
 
+        # Open boundary polygon
+        # self.boundary_conditions      = Delft3DFMBoundaryConditions(self)
+        # if self.input.geometry.bndfile.filepath:
+        #     self.boundary_conditions.load_bnd(self.input.geometry.bndfile.filepath)
 #        self.grid.compute_coordinates(x0,y0,dx,dy,nx,ny,rotation)
+
         pass
     
 
