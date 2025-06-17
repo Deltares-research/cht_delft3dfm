@@ -26,6 +26,9 @@ from cht_utils.geometry import Point
 from cht_utils.deltares_ini import IniStruct
 from .grid import Delft3DFMGrid
 from .boundary_conditions import Delft3DFMBoundaryConditions
+from .observation_points import Delft3DFMObservationPoints
+from .cross_sections import Delft3DFMCrossSections
+from .thin_dams import Delft3DFMThinDams
 
 class Delft3DFM:
     
@@ -38,7 +41,10 @@ class Delft3DFM:
         self.crs                      = crs
         self.grid                     = Delft3DFMGrid(self)
         self.boundary_conditions      = Delft3DFMBoundaryConditions(self)
-        self.mask                     = None
+        self.observation_points       = Delft3DFMObservationPoints(self)
+        self.cross_sections           = Delft3DFMCrossSections(self)
+        self.thin_dams                = Delft3DFMThinDams(self)
+        # self.mask                     = None
         self.boundary                 = []
         # self.observation_point        = []
         self.obstacle                 = []
@@ -51,8 +57,8 @@ class Delft3DFM:
             self.load(input_file)
 
         # To Do: separate module
-        self.observation_point_gdf   = gpd.GeoDataFrame()
-        self.observation_line_gdf   = gpd.GeoDataFrame()
+        # self.observation_point_gdf   = gpd.GeoDataFrame()
+        # self.observation_line_gdf   = gpd.GeoDataFrame()
 
     def load(self, inputfile):
         # Reads sfincs.inp and attribute files
@@ -141,7 +147,7 @@ class Delft3DFM:
 #        self.read_flow_boundary_conditions()
 
         # Observation points
-        self.read_observation_points()
+        self.observation_points.read()
 
         # Open boundary polygon
         # self.boundary_conditions      = Delft3DFMBoundaryConditions(self)
@@ -417,6 +423,7 @@ class Delft3DFM:
     #     self.observation_point.append(ObservationPoint(x, y, name, crs=None))
 
     def delete_observation_point(self, name_or_index):
+        # REDUNDANT: observation_points.py
         if type(name_or_index) == str:
             name = name_or_index
             for index, row in self.observation_point_gdf.iterrows():
@@ -434,7 +441,7 @@ class Delft3DFM:
             return
         
     def add_observation_point_gdf(self, x, y, name): # Used in CoSMoS -> change to gdf
-
+        # REDUNDANT: observation_points.py
         point = shapely.geometry.Point(x, y)
         gdf_list = []
         d = {"name": name, "long_name": None, "geometry": point}
@@ -443,7 +450,7 @@ class Delft3DFM:
         self.observation_point_gdf = pd.concat([self.observation_point_gdf, gdf_new], ignore_index=True)
 
     def read_observation_points(self, path=None, file_list=None): # Used in CoSMoS
-        
+        # REDUNDANT: observation_points.py
         # self.observation_point = []
 
         if not path:
@@ -482,7 +489,7 @@ class Delft3DFM:
         self.observation_point_gdf = gpd.GeoDataFrame(gdf_list, crs=self.crs)
 
     def write_observation_points(self, file_name=None, path=None):
-
+        # REDUNDANT: observation_points.py
         if not path:
             path = self.path
             
@@ -513,6 +520,7 @@ class Delft3DFM:
         #         fid.write(string)
         #     fid.close()
     def list_observation_names(self):
+        # REDUNDANT: observation_points.py
         names = []
         for index, row in self.observation_point_gdf.iterrows():
             names.append(row["name"])
@@ -520,7 +528,7 @@ class Delft3DFM:
       
     ### Observation cross sections ###
     def read_observation_lines(self, path=None, file_name=None):
-
+        # REDUNDANT: cross_sections.py
         if not path:
             path=self.path
     
@@ -531,7 +539,7 @@ class Delft3DFM:
         self.observation_line_gdf = dfmt.PolyFile_to_geodataframe_linestrings(data,crs=None) 
     
     def write_observation_lines(self, path=None, file_name=None):
-
+        # REDUNDANT: cross_sections.py
         if not path:
             path=self.path
     
