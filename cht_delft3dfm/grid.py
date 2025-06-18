@@ -255,7 +255,7 @@ class Delft3DFMGrid:
                 dxmin = self.min_edge_size / 111111.0 # For get_bathymetry, dxmin must be in local coordinates (deg/m)
             else:
                 dxmin = self.min_edge_size
-            bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin=dxmin, method= 'points')
+            bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin=dxmin, method= 'grid')
             dfmt.refine_basegrid(mk=self.mk, data_bathy_sel=bathy, min_edge_size=self.min_edge_size, connect_hanging_nodes=False)
             self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
         else:
@@ -279,7 +279,7 @@ class Delft3DFMGrid:
                     dxmin = min_edge_size / 111111.0 # For get_bathymetry, dxmin must be in local coordinates (deg/m)
                 else:
                     dxmin = min_edge_size
-                bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin=dxmin, method= 'points')
+                bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin=dxmin, method= 'grid')
 
                 bounds = geom.bounds
                 bathy_clip = bathy.sel(
