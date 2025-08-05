@@ -416,6 +416,20 @@ class Delft3DFMGrid:
             self.exterior = gpd.GeoDataFrame(geometry=list(polygons), crs=self.model.crs)
         except:
             self.exterior = gpd.GeoDataFrame()    
+    
+    def bounds(self, crs=None, buffer=0.0):
+        """Returns list with bounds (lon1, lat1, lon2, lat2), with buffer (default 0.0) and in any CRS (default : same CRS as model)"""
+        if crs is None:
+            crs = self.crs
+        # Convert exterior gdf to WGS 84
+        lst = self.exterior.to_crs(crs=crs).total_bounds.tolist()
+        dx = lst[2] - lst[0]
+        dy = lst[3] - lst[1]
+        lst[0] = lst[0] - buffer * dx
+        lst[1] = lst[1] - buffer * dy
+        lst[2] = lst[2] + buffer * dx
+        lst[3] = lst[3] + buffer * dy
+        return lst
 
     def get_datashader_dataframe(self):
         # Create a dataframe with line elements
