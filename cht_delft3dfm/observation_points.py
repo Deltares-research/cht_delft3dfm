@@ -73,6 +73,8 @@ class Delft3DFMObservationPoints:
         self.gdf = pd.concat([self.gdf, gdf_new], ignore_index=True)
 
     def add_points(self, gdf, name="name"):
+        if self.model.grid.exterior.empty:
+            self.model.grid.get_exterior()
         outline = self.model.grid.exterior.loc[0]["geometry"]
         gdf = gdf.to_crs(self.model.crs)
         x = np.empty((len(gdf)))
