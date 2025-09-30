@@ -328,7 +328,11 @@ class Delft3DFMGrid:
             dxmintmp = np.abs(self.lon_max - self.lon_min)/3 # temporary bathy to connect nodes
             bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin= dxmintmp, method= 'grid')
             dfmt.refine_basegrid(mk=self.mk, data_bathy_sel=bathy, min_edge_size=1000000, connect_hanging_nodes=True)
+            dfmt.meshkernel_get_illegalcells(mk=self.mk)
             self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
+            ortho = self.mk.mesh2d_get_orthogonality()
+            if ortho.values.max()>0.02:
+                print("Warning: mesh has non-orthogonal cells, max orthogonality = " + str(ortho.values.max()))
         else:
             print("Please select bathymetry first ...")
 
