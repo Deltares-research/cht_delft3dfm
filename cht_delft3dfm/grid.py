@@ -10,6 +10,7 @@ import numpy as np
 from matplotlib import path
 from pyproj import CRS, Transformer
 import shapely
+from shapely.geometry import box
 
 import xugrid as xu
 import xarray as xr
@@ -73,6 +74,7 @@ class Delft3DFMGrid:
               dy=0.1,
               bathymetry_list=None,
               bathymetry_database=None,
+              data_catalog=None,
               refinement_depth = 0,
               refinement_polygon=None,
               min_edge_size = 500):
@@ -108,7 +110,7 @@ class Delft3DFMGrid:
         self.mk = dfmt.make_basegrid(self.lon_min, self.lon_max, self.lat_min, self.lat_max, dx=dx, dy=dy, crs=self.model.crs)
         self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
 
-        self.refine(bathymetry_list, bathymetry_database)
+        self.refine(bathymetry_list, bathymetry_database, data_catalog=data_catalog)
 
         # convert to xugrid
         # self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
@@ -116,7 +118,7 @@ class Delft3DFMGrid:
 
         # Interpolate bathymetry onto the grid
         if bathymetry_list:
-            self.set_bathymetry(bathymetry_list, bathymetry_database)
+            self.set_bathymetry(bathymetry_list, bathymetry_database, data_catalog=data_catalog)
         else:
             print("No depth values assigned. Please select bathymetry ...")
 
@@ -145,85 +147,154 @@ class Delft3DFMGrid:
 
         print("Time elapsed : " + str(time.time() - start) + " s")
 
-    def get_bathymetry(self, bathymetry_sets, bathymetry_database=None, method='grid', dxmin=None, quiet=True):
-        """
-        Get bathymetry data on the grid or points.
+    def get_bathymetry(self, bathymetry_sets, bathymetry_database=None, data_catalog=None, method='grid', dxmin=None, quiet=True):
+        """Get bathymetry data on a regular grid or at points.
+
         Parameters
-        ----------  
+        ----------
         bathymetry_sets : list
             List of bathymetry sets to use.
+        bathymetry_database : object, optional
+            Legacy cht_bathymetry database.
+        data_catalog : DataCatalog, optional
+            HydroMT data catalog.
+        method : str
+            'grid' or 'points'.
         dxmin : float, optional
-            Minimum distance [deg/m] between points in the grid. If not provided, it will be set to half of the grid resolution.
+            Minimum distance [deg/m]. Defaults to half the grid resolution.
         """
-
-        # from cht_bathymetry.bathymetry_database import bathymetry_database
-
         if not quiet:
             print("Getting bathymetry data ...")
-            pass
 
         if not dxmin:
-            dxmin=self.dx/2
+            dxmin = self.dx / 2
 
-        # Make new grid based on outer edges of xx and yy and dxmin
-        lon_grid = np.arange(self.lon_min-1, self.lon_max+1, dxmin)
-        lat_grid = np.arange(self.lat_min-1, self.lat_max+1, dxmin)
+        lon_grid = np.arange(self.lon_min - 1, self.lon_max + 1, dxmin)
+        lat_grid = np.arange(self.lat_min - 1, self.lat_max + 1, dxmin)
+
+        if data_catalog is not None:
+            # HydroMT data catalog path
+            geom = gpd.GeoDataFrame(
+                geometry=[box(self.lon_min - 1, self.lat_min - 1,
+                              self.lon_max + 1, self.lat_max + 1)],
+                crs=self.model.crs,
+            )
+            dxmin_m = dxmin * 111111.0 if self.data.grid.crs.is_geographic else dxmin
+            zz = None
+            for ds in reversed(bathymetry_sets):
+                name = ds.get("elevation", ds.get("name"))
+                zmin = ds.get("zmin", -1.0e9)
+                zmax = ds.get("zmax", 1.0e9)
+                try:
+                    da = data_catalog.get_rasterdataset(
+                        name, geom=geom, zoom=(dxmin_m, "metre")
+                    )
+                    vals = da.values.astype(np.float64)
+                    vals[(vals < zmin) | (vals > zmax)] = np.nan
+                    if zz is None:
+                        zz = vals
+                    else:
+                        mask = np.isnan(zz)
+                        zz[mask] = vals[mask]
+                except Exception:
+                    continue
+            if zz is None:
+                zz = np.full((len(lat_grid), len(lon_grid)), np.nan)
+            bathy = xr.DataArray(
+                zz, coords={"lat": da.y.values, "lon": da.x.values}, dims=["lat", "lon"]
+            )
+            return bathy
+
+        # Legacy cht_bathymetry path
         if method == 'points':
             lon, lat = np.meshgrid(lon_grid, lat_grid)
             lon_grid = lon.ravel()
             lat_grid = lat.ravel()
 
         if self.data.grid.crs.is_geographic:
-            dxmin = dxmin * 111111.0 # dxmin for get_bathymetry_on_grid always in meters
+            dxmin = dxmin * 111111.0
 
-        # Get bathymetry on grid
-        zz = bathymetry_database.get_bathymetry_on_grid(lon_grid,
-                                                    lat_grid,
-                                                    self.model.crs,
-                                                    bathymetry_sets,
-                                                    coords=method,
-                                                    dxmin=dxmin)
+        zz = bathymetry_database.get_bathymetry_on_grid(
+            lon_grid, lat_grid, self.model.crs, bathymetry_sets,
+            coords=method, dxmin=dxmin,
+        )
 
-        # Make xarray data array
         if method == 'points':
-            bathy = xr.DataArray(zz,         
-                                coords={'lon': ('points', lon_grid), 'lat': ('points', lat_grid)},
-                                dims=['points'])
+            bathy = xr.DataArray(
+                zz, coords={'lon': ('points', lon_grid), 'lat': ('points', lat_grid)},
+                dims=['points'],
+            )
         elif method == 'grid':
-            bathy = xr.DataArray(zz,         
-                    coords={'lon': lon_grid, 'lat': lat_grid},
-                    dims=['lat', 'lon'])
+            bathy = xr.DataArray(
+                zz, coords={'lon': lon_grid, 'lat': lat_grid}, dims=['lat', 'lon'],
+            )
         return bathy
 
-    def set_bathymetry(self, bathymetry_sets, bathymetry_database=None, quiet=True):
-        
-        # from cht_bathymetry.bathymetry_database import bathymetry_database
+    def set_bathymetry(self, bathymetry_sets, bathymetry_database=None, data_catalog=None, quiet=True):
+        """Interpolate bathymetry onto mesh nodes.
 
+        Parameters
+        ----------
+        bathymetry_sets : list
+            List of bathymetry datasets.
+        bathymetry_database : object, optional
+            Legacy cht_bathymetry database.
+        data_catalog : DataCatalog, optional
+            HydroMT data catalog.
+        """
         if not quiet:
             print("Getting bathymetry data ...")
-        
-        # Check which type of grid
-        xx= self.data.obj.mesh2d_node_x
+
+        xx = self.data.obj.mesh2d_node_x
         yy = self.data.obj.mesh2d_node_y
+        dxmin = self.dx / 2
 
-        dxmin = self.dx/2
+        if data_catalog is not None:
+            # HydroMT data catalog path — fetch raster and interpolate to points
+            geom = gpd.GeoDataFrame(
+                geometry=[box(float(xx.min()) - dxmin, float(yy.min()) - dxmin,
+                              float(xx.max()) + dxmin, float(yy.max()) + dxmin)],
+                crs=self.model.crs,
+            )
+            dxmin_m = dxmin * 111111.0 if self.data.grid.crs.is_geographic else dxmin
+            zz = np.full(len(xx), np.nan)
+            for ds in reversed(bathymetry_sets):
+                name = ds.get("elevation", ds.get("name"))
+                zmin = ds.get("zmin", -1.0e9)
+                zmax = ds.get("zmax", 1.0e9)
+                try:
+                    da = data_catalog.get_rasterdataset(
+                        name, geom=geom, zoom=(dxmin_m, "metre")
+                    )
+                    # Interpolate raster to node points
+                    from scipy.interpolate import RegularGridInterpolator
+                    interp = RegularGridInterpolator(
+                        (da.y.values, da.x.values), da.values,
+                        method="linear", bounds_error=False, fill_value=np.nan,
+                    )
+                    vals = interp(np.column_stack([yy.values, xx.values]))
+                    vals[(vals < zmin) | (vals > zmax)] = np.nan
+                    mask = np.isnan(zz)
+                    zz[mask] = vals[mask]
+                except Exception:
+                    continue
+        else:
+            # Legacy cht_bathymetry path
+            if self.data.grid.crs.is_geographic:
+                dxmin = dxmin * 111111.0
+            zz = bathymetry_database.get_bathymetry_on_points(
+                xx, yy, dxmin, self.model.crs, bathymetry_sets,
+            )
 
-        if self.data.grid.crs.is_geographic:
-            dxmin = dxmin * 111111.0 # dxmin always in meters
-
-        # Get bathy
-        zz = bathymetry_database.get_bathymetry_on_points(xx,
-                                                    yy,
-                                                    dxmin,
-                                                    self.model.crs,
-                                                    bathymetry_sets)             
         ugrid2d = self.data.grid
-        self.data["mesh2d_node_z"] = xu.UgridDataArray(xr.DataArray(data=zz, dims=[ugrid2d.node_dimension]), ugrid2d)
+        self.data["mesh2d_node_z"] = xu.UgridDataArray(
+            xr.DataArray(data=zz, dims=[ugrid2d.node_dimension]), ugrid2d
+        )
 
-    def refine(self, bathymetry_list, bathymetry_database):
+    def refine(self, bathymetry_list, bathymetry_database, data_catalog=None):
         if self.refinement_depth:
             # Refine based on depth
-            self.refine_depth(bathymetry_list, bathymetry_database)
+            self.refine_depth(bathymetry_list, bathymetry_database, data_catalog=data_catalog)
         if self.refinement_polygon:
             # Refine based on polygon input
             self.refine_polygon()
@@ -247,22 +318,22 @@ class Delft3DFMGrid:
         self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
         self.get_datashader_dataframe()
 
-    def refine_depth(self, bathymetry_list, bathymetry_database):
+    def refine_depth(self, bathymetry_list, bathymetry_database, data_catalog=None):
 
         if bathymetry_list:
             self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
             if self.data.grid.crs.is_geographic:
-                dxmin = self.min_edge_size / 111111.0 # For get_bathymetry, dxmin must be in local coordinates (deg/m)
+                dxmin = self.min_edge_size / 111111.0
             else:
                 dxmin = self.min_edge_size
-            bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin=dxmin, method= 'grid')
+            bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, data_catalog=data_catalog, dxmin=dxmin, method='grid')
             dfmt.refine_basegrid(mk=self.mk, data_bathy_sel=bathy, min_edge_size=self.min_edge_size, connect_hanging_nodes=False)
             self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
         else:
             print("Please select bathymetry first ...")
         self.get_datashader_dataframe()
 
-    def refine_polygon_depth(self, bathymetry_list, bathymetry_database, gdf=None):
+    def refine_polygon_depth(self, bathymetry_list, bathymetry_database, data_catalog=None, gdf=None):
         from meshkernel import GriddedSamples, MeshRefinementParameters, RefinementType
 
         if gdf is None:
@@ -279,7 +350,7 @@ class Delft3DFMGrid:
                     dxmin = min_edge_size / 111111.0 # For get_bathymetry, dxmin must be in local coordinates (deg/m)
                 else:
                     dxmin = min_edge_size
-                bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin=dxmin, method= 'grid')
+                bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, data_catalog=data_catalog, dxmin=dxmin, method='grid')
 
                 bounds = geom.bounds
                 bathy_clip = bathy.sel(
@@ -321,12 +392,12 @@ class Delft3DFMGrid:
 
         self.get_datashader_dataframe()
 
-    def connect_nodes(self, bathymetry_list, bathymetry_database):
+    def connect_nodes(self, bathymetry_list, bathymetry_database, data_catalog=None):
         # Connect hanging nodes (work around since separate function is not available in meshkernel)
         if bathymetry_list:
             self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
-            dxmintmp = np.abs(self.lon_max - self.lon_min)/3 # temporary bathy to connect nodes
-            bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, dxmin= dxmintmp, method= 'grid')
+            dxmintmp = np.abs(self.lon_max - self.lon_min) / 3
+            bathy = self.get_bathymetry(bathymetry_list, bathymetry_database, data_catalog=data_catalog, dxmin=dxmintmp, method='grid')
             dfmt.refine_basegrid(mk=self.mk, data_bathy_sel=bathy, min_edge_size=1000000, connect_hanging_nodes=True)
             dfmt.meshkernel_get_illegalcells(mk=self.mk)
             self.data = dfmt.meshkernel_to_UgridDataset(mk=self.mk, crs=self.model.crs)
