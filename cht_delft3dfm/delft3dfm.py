@@ -21,9 +21,9 @@ from hydrolib.core.dflowfm.mdu.models import FMModel
 import hydrolib.core.dflowfm as hcdfm
 import dfm_tools as dfmt
 
-from cht_utils.geometry import RegularGrid
-from cht_utils.geometry import Point
-from cht_utils.deltares_ini import IniStruct
+from .utils.geometry import RegularGrid
+from .utils.geometry import Point
+from cht_utils.fileio.deltares_ini import IniStruct
 from .grid import Delft3DFMGrid
 from .boundary_conditions import Delft3DFMBoundaryConditions
 from .observation_points import Delft3DFMObservationPoints
