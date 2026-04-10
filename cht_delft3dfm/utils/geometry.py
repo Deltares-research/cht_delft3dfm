@@ -1,34 +1,57 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun May 16 14:56:46 2021
+"""Geometry utility classes for building and inspecting regular grids and polylines."""
 
-@author: ormondt
-"""
-
-import numpy as np
-import geopandas as gpd
-import shapely
 import math
+from typing import Optional
+
+import geopandas as gpd
+import numpy as np
+import shapely
 
 
 class Geometry:
-    def __init__(self):
+    """Base class for geometry objects."""
+
+    def __init__(self) -> None:
         pass
 
 
 class RegularGrid(Geometry):
+    """A rotated regular (structured) grid.
+
+    Parameters
+    ----------
+    hw : object
+        Parent model or context object (unused, kept for API compatibility).
+    x0 : float, optional
+        X-coordinate of the grid origin.
+    y0 : float, optional
+        Y-coordinate of the grid origin.
+    dx : float, optional
+        Cell size in the x-direction.
+    dy : float, optional
+        Cell size in the y-direction.
+    nmax : int, optional
+        Number of rows.
+    mmax : int, optional
+        Number of columns.
+    rotation : float, optional
+        Grid rotation angle in degrees (counter-clockwise).
+    crs : object, optional
+        Coordinate reference system.
+    """
+
     def __init__(
         self,
         hw,
-        x0=None,
-        y0=None,
-        dx=None,
-        dy=None,
-        nmax=None,
-        mmax=None,
-        rotation=None,
+        x0: Optional[float] = None,
+        y0: Optional[float] = None,
+        dx: Optional[float] = None,
+        dy: Optional[float] = None,
+        nmax: Optional[int] = None,
+        mmax: Optional[int] = None,
+        rotation: Optional[float] = None,
         crs=None,
-    ):
+    ) -> None:
         self.x0 = x0
         self.y0 = y0
         self.dx = dx
@@ -41,7 +64,38 @@ class RegularGrid(Geometry):
             self.xg, self.yg = self.grid_coordinates_corners()
             self.xz, self.yz = self.grid_coordinates_centres()
 
-    def build(self, x0, y0, dx, dy, nx, ny, rotation, crs):
+    def build(
+        self,
+        x0: float,
+        y0: float,
+        dx: float,
+        dy: float,
+        nx: int,
+        ny: int,
+        rotation: float,
+        crs,
+    ) -> None:
+        """Configure and generate grid coordinate arrays.
+
+        Parameters
+        ----------
+        x0 : float
+            X-coordinate of the grid origin.
+        y0 : float
+            Y-coordinate of the grid origin.
+        dx : float
+            Cell size in the x-direction.
+        dy : float
+            Cell size in the y-direction.
+        nx : int
+            Number of columns.
+        ny : int
+            Number of rows.
+        rotation : float
+            Grid rotation in degrees.
+        crs : object
+            Coordinate reference system.
+        """
         self.x0 = x0
         self.y0 = y0
         self.dx = dx
@@ -53,8 +107,16 @@ class RegularGrid(Geometry):
         self.xz, self.yz = self.grid_coordinates_centres()
         self.crs = crs
 
-    def grid_coordinates_corners(self):
+    def grid_coordinates_corners(self) -> tuple:
+        """Compute the x/y coordinates of cell corner nodes.
 
+        Returns
+        -------
+        xg : np.ndarray
+            2-D array of x-coordinates at cell corners.
+        yg : np.ndarray
+            2-D array of y-coordinates at cell corners.
+        """
         cosrot = np.cos(self.rotation * np.pi / 180)
         sinrot = np.sin(self.rotation * np.pi / 180)
         xx = np.linspace(0.0, self.mmax * self.dx, num=self.mmax + 1)
@@ -65,8 +127,16 @@ class RegularGrid(Geometry):
 
         return xg, yg
 
-    def grid_coordinates_centres(self):
+    def grid_coordinates_centres(self) -> tuple:
+        """Compute the x/y coordinates of cell centres.
 
+        Returns
+        -------
+        xz : np.ndarray
+            2-D array of x-coordinates at cell centres.
+        yz : np.ndarray
+            2-D array of y-coordinates at cell centres.
+        """
         cosrot = np.cos(self.rotation * np.pi / 180)
         sinrot = np.sin(self.rotation * np.pi / 180)
         xx = np.linspace(
@@ -81,12 +151,24 @@ class RegularGrid(Geometry):
 
         return xz, yz
 
-    def plot(self, ax):
+    def plot(self, ax) -> None:
+        """Placeholder for grid plotting.
 
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes
+            Axes object to plot onto.
+        """
         pass
 
-    def to_gdf(self):
+    def to_gdf(self) -> gpd.GeoDataFrame:
+        """Export grid edges as a GeoDataFrame of MultiLineString geometry.
 
+        Returns
+        -------
+        gpd.GeoDataFrame
+            GeoDataFrame with a single row containing the grid edge lines.
+        """
         lines = []
 
         cosrot = math.cos(self.rotation * math.pi / 180)
@@ -111,9 +193,27 @@ class RegularGrid(Geometry):
 
 
 class Point:
+    """A single 2-D point with optional name and CRS.
 
-    def __init__(self, x, y, name=None, crs=None):
+    Parameters
+    ----------
+    x : float
+        X-coordinate.
+    y : float
+        Y-coordinate.
+    name : str, optional
+        Point identifier.
+    crs : object, optional
+        Coordinate reference system.
+    """
 
+    def __init__(
+        self,
+        x: float,
+        y: float,
+        name: Optional[str] = None,
+        crs=None,
+    ) -> None:
         self.x = x
         self.y = y
         self.crs = crs
@@ -122,9 +222,30 @@ class Point:
 
 
 class Polyline(Geometry):
+    """An ordered sequence of points forming an open or closed line.
 
-    def __init__(self, x=None, y=None, crs=None, name=None, closed=False):
+    Parameters
+    ----------
+    x : list of float, optional
+        X-coordinates of the polyline vertices.
+    y : list of float, optional
+        Y-coordinates of the polyline vertices.
+    crs : object, optional
+        Coordinate reference system.
+    name : str, optional
+        Polyline identifier.
+    closed : bool, optional
+        Whether the polyline is closed (default ``False``).
+    """
 
+    def __init__(
+        self,
+        x=None,
+        y=None,
+        crs=None,
+        name: Optional[str] = None,
+        closed: bool = False,
+    ) -> None:
         self.point = []
         self.name = name
         self.data = None
@@ -136,8 +257,30 @@ class Polyline(Geometry):
                 pnt = Point(x[j], y[j])
                 self.point.append(pnt)
 
-    def add_point(self, x, y, name=None, data=None, position=-1):
+    def add_point(
+        self,
+        x: float,
+        y: float,
+        name: Optional[str] = None,
+        data=None,
+        position: int = -1,
+    ) -> None:
+        """Append or insert a point into the polyline.
 
+        Parameters
+        ----------
+        x : float
+            X-coordinate of the new point.
+        y : float
+            Y-coordinate of the new point.
+        name : str, optional
+            Point identifier.
+        data : object, optional
+            Arbitrary data to attach to the point.
+        position : int, optional
+            Index at which to insert the point.  ``-1`` (default) appends
+            to the end.
+        """
         pnt = Point(x, y, name=name, data=data)
         if position < 0:
             # Add point to the end
@@ -146,5 +289,12 @@ class Polyline(Geometry):
             #
             pass
 
-    def plot(self, ax=None):
+    def plot(self, ax=None) -> None:
+        """Placeholder for polyline plotting.
+
+        Parameters
+        ----------
+        ax : matplotlib.axes.Axes, optional
+            Axes object to plot onto.
+        """
         pass

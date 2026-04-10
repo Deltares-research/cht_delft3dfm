@@ -1,8 +1,3 @@
-# -*- coding: utf-8 -*-
-"""
-Created on Sun Apr 25 10:58:08 2021
+"""cht_delft3dfm: Python package for building and managing Delft3D-FM models."""
 
-@author: ormondt
-"""
-from .delft3dfm import Delft3DFM
-
+from .delft3dfm import Delft3DFM  # noqa: F401

@@ -1,4 +1,1 @@
-# -*- coding: utf-8 -*-
-"""
-"""
-
+"""Utility subpackage for cht_delft3dfm."""
