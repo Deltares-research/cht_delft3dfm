@@ -110,8 +110,21 @@ class Delft3DFM:
         if self.input.external_forcing.extforcefilenew:
             self.read_ext_file_new()
 
+            # Also load the water-level boundary polyline into
+            # ``boundary_conditions`` (used by DelftDashboard).
+            for bnd in self.boundary:
+                if bnd.quantity == "waterlevelbnd" and bnd.locationfile:
+                    loc_file = os.path.join(self.path, bnd.locationfile)
+                    if os.path.exists(loc_file):
+                        self.boundary_conditions.load_bnd(file_name=loc_file)
+                    break
+
         # Observation points
         self.observation_points.read()
+
+        # Thin dams and observation cross sections
+        self.thin_dams.read()
+        self.cross_sections.read()
 
         pass
 
@@ -760,7 +773,7 @@ class Delft3DFMBoundary:
         """
         loc_file = os.path.join(path, self.locationfile)
 
-        from cht_utils.pli_file import read_pli_file
+        from cht_utils.fileio.pli_file import read_pli_file
 
         d = read_pli_file(loc_file)
         name0 = os.path.split(loc_file)[-1][0:-4]
