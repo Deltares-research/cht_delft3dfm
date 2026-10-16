@@ -23,7 +23,7 @@ dependencies = [
     "toml",
     "datashader",
     "cht_utils@ git+https://github.com/deltares-research/cht_utils.git",
-    "dfm_tools",
-    "hydrolib-core==0.9.0",
+    "dfm_tools>=0.47",
+    "hydrolib-core>=1.0.1",
 ]
 
