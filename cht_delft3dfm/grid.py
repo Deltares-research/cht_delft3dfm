@@ -13,6 +13,7 @@ import xugrid as xu
 from matplotlib import path
 from pyproj import CRS, Transformer
 from shapely.geometry import box
+from scipy.interpolate import RegularGridInterpolator
 
 np.warnings = warnings
 
@@ -63,10 +64,15 @@ class Delft3DFMGrid:
             )
         self.data = xu.open_dataset(file_name)
         self.data.close()
-        self.type = next(iter(self.data.dims.mapping))
-        self.nr_cells = self.data.dims[self.type]
+        self.type = next(iter(self.data.sizes))
+        self.nr_cells = self.data.sizes[self.type]
         self.get_exterior()
-        if self.data.grid.projected:
+        # xugrid >= 0.15.3 renamed ``projected`` to ``is_projected``
+        grid = self.data.grid
+        is_projected = getattr(grid, "is_projected", None)
+        if is_projected is None:
+            is_projected = getattr(grid, "projected")
+        if is_projected:
             print("Could not find CRS in netcdf file")
         else:
             self.model.crs = CRS(4326)
@@ -175,13 +181,85 @@ class Delft3DFMGrid:
 
         print(f"Time elapsed : {time.time() - start} s")
 
+    # def get_bathymetry(
+    #     self,
+    #     bathymetry_sets: list,
+    #     data_catalog,
+    #     dxmin: Optional[float] = None,
+    #     quiet: bool = True,
+    # ) -> xr.DataArray:
+    #     """Get bathymetry data on a regular grid.
+
+    #     Parameters
+    #     ----------
+    #     bathymetry_sets : list
+    #         List of bathymetry dataset descriptors.
+    #     data_catalog : DataCatalog
+    #         HydroMT data catalog used to resolve ``bathymetry_sets`` entries.
+    #     dxmin : float, optional
+    #         Minimum sampling resolution.  Defaults to half the grid cell size.
+    #     quiet : bool, optional
+    #         Suppress progress messages when ``True`` (default).
+
+    #     Returns
+    #     -------
+    #     xr.DataArray
+    #         Bathymetry values on the requested grid.
+    #     """
+    #     if not quiet:
+    #         print("Getting bathymetry data ...")
+
+    #     if not dxmin:
+    #         dxmin = self.dx / 2
+
+    #     geom = gpd.GeoDataFrame(
+    #         geometry=[
+    #             box(
+    #                 self.lon_min - 1,
+    #                 self.lat_min - 1,
+    #                 self.lon_max + 1,
+    #                 self.lat_max + 1,
+    #             )
+    #         ],
+    #         crs=self.model.crs,
+    #     )
+    #     dxmin_m = dxmin * 111111.0 if self.data.grid.crs.is_geographic else dxmin
+    #     zz = None
+    #     da = None
+    #     for ds in reversed(bathymetry_sets):
+    #         name = ds.get("elevation", ds.get("name"))
+    #         zmin = ds.get("zmin", -1.0e9)
+    #         zmax = ds.get("zmax", 1.0e9)
+    #         try:
+    #             da = data_catalog.get_rasterdataset(
+    #                 name, geom=geom, zoom=(dxmin_m, "metre")
+    #             )
+    #             vals = da.values.astype(np.float64)
+    #             vals[(vals < zmin) | (vals > zmax)] = np.nan
+    #             if zz is None:
+    #                 zz = vals
+    #             else:
+    #                 mask = np.isnan(zz)
+    #                 zz[mask] = vals[mask]
+    #         except Exception:
+    #             continue
+    #     if zz is None or da is None:
+    #         lon_grid = np.arange(self.lon_min - 1, self.lon_max + 1, dxmin)
+    #         lat_grid = np.arange(self.lat_min - 1, self.lat_max + 1, dxmin)
+    #         zz = np.full((len(lat_grid), len(lon_grid)), np.nan)
+    #         return xr.DataArray(
+    #             zz, coords={"lat": lat_grid, "lon": lon_grid}, dims=["lat", "lon"]
+    #         )
+    #     return xr.DataArray(
+    #         zz, coords={"lat": da.y.values, "lon": da.x.values}, dims=["lat", "lon"]
+    #     )
     def get_bathymetry(
         self,
         bathymetry_sets: list,
         data_catalog,
         dxmin: Optional[float] = None,
         quiet: bool = True,
-    ) -> xr.DataArray:
+        ) -> xr.DataArray:
         """Get bathymetry data on a regular grid.
 
         Parameters
@@ -206,20 +284,26 @@ class Delft3DFMGrid:
         if not dxmin:
             dxmin = self.dx / 2
 
+        # Use the actual mesh extent (lon_min etc. only exist after build(),
+        # not after reading an existing grid), with a margin.
+        xmin, ymin, xmax, ymax = self.data.grid.bounds
+        buf = 5 * dxmin
+        xmin, ymin, xmax, ymax = xmin - buf, ymin - buf, xmax + buf, ymax + buf
         geom = gpd.GeoDataFrame(
-            geometry=[
-                box(
-                    self.lon_min - 1,
-                    self.lat_min - 1,
-                    self.lon_max + 1,
-                    self.lat_max + 1,
-                )
-            ],
-            crs=self.model.crs,
+            geometry=[box(xmin, ymin, xmax, ymax)], crs=self.model.crs
         )
-        dxmin_m = dxmin * 111111.0 if self.data.grid.crs.is_geographic else dxmin
-        zz = None
-        da = None
+        dxmin_m = dxmin * 111111.0 if self.model.crs.is_geographic else dxmin
+
+        # Regular target grid in the MODEL CRS (ascending axes). Datasets are
+        # sampled onto this grid, so rasters in another CRS (e.g. slippy-tile
+        # sources such as GEBCO, which come back in EPSG:3857) and rasters
+        # with different resolutions can be combined.
+        lon_grid = np.arange(xmin, xmax + dxmin, dxmin)
+        lat_grid = np.arange(ymin, ymax + dxmin, dxmin)
+        glon, glat = np.meshgrid(lon_grid, lat_grid)
+        zz = np.full(glon.shape, np.nan)
+
+        found = False
         for ds in reversed(bathymetry_sets):
             name = ds.get("elevation", ds.get("name"))
             zmin = ds.get("zmin", -1.0e9)
@@ -228,24 +312,62 @@ class Delft3DFMGrid:
                 da = data_catalog.get_rasterdataset(
                     name, geom=geom, zoom=(dxmin_m, "metre")
                 )
-                vals = da.values.astype(np.float64)
+                if isinstance(da, xr.Dataset):
+                    da = da[list(da.data_vars)[0]]
+                if "band" in da.dims:
+                    da = da.squeeze("band", drop=True)
+                y_vals = da.y.values
+                x_vals = da.x.values
+                data = da.values.astype(np.float64)
+                if y_vals[0] > y_vals[-1]:
+                    y_vals = y_vals[::-1]
+                    data = data[::-1, :]
+                if x_vals[0] > x_vals[-1]:
+                    x_vals = x_vals[::-1]
+                    data = data[:, ::-1]
+
+                # Transform the target grid into the raster's CRS
+                raster_crs = None
+                try:
+                    raster_crs = da.raster.crs
+                except AttributeError:
+                    raster_crs = da.rio.crs
+                sample_x, sample_y = glon.ravel(), glat.ravel()
+                if raster_crs is not None and CRS(raster_crs) != CRS(self.model.crs):
+                    transformer = Transformer.from_crs(
+                        self.model.crs, raster_crs, always_xy=True
+                    )
+                    sample_x, sample_y = transformer.transform(sample_x, sample_y)
+
+                interp = RegularGridInterpolator(
+                    (y_vals, x_vals),
+                    data,
+                    method="linear",
+                    bounds_error=False,
+                    fill_value=np.nan,
+                )
+                vals = interp(np.column_stack([sample_y, sample_x])).reshape(
+                    glon.shape
+                )
                 vals[(vals < zmin) | (vals > zmax)] = np.nan
-                if zz is None:
-                    zz = vals
-                else:
-                    mask = np.isnan(zz)
-                    zz[mask] = vals[mask]
-            except Exception:
+                mask = np.isnan(zz)
+                zz[mask] = vals[mask]
+                found = True
+            except Exception as exc:
+                print(
+                    f"get_bathymetry: reading {name!r} failed: "
+                    f"{type(exc).__name__}: {exc}"
+                )
                 continue
-        if zz is None or da is None:
-            lon_grid = np.arange(self.lon_min - 1, self.lon_max + 1, dxmin)
-            lat_grid = np.arange(self.lat_min - 1, self.lat_max + 1, dxmin)
-            zz = np.full((len(lat_grid), len(lon_grid)), np.nan)
-            return xr.DataArray(
-                zz, coords={"lat": lat_grid, "lon": lon_grid}, dims=["lat", "lon"]
+
+        if not found or np.all(np.isnan(zz)):
+            print(
+                "WARNING: no bathymetry data available for this area - "
+                "refinement will have no effect."
             )
+
         return xr.DataArray(
-            zz, coords={"lat": da.y.values, "lon": da.x.values}, dims=["lat", "lon"]
+            zz, coords={"lat": lat_grid, "lon": lon_grid}, dims=["lat", "lon"]
         )
 
     def set_bathymetry(
@@ -459,6 +581,7 @@ class Delft3DFMGrid:
                 )
 
                 bounds = geom.bounds
+                bathy = bathy.sortby("lat").sortby("lon")
                 bathy_clip = bathy.sel(
                     lon=slice(bounds[0], bounds[2]), lat=slice(bounds[1], bounds[3])
                 )
@@ -641,7 +764,11 @@ class Delft3DFMGrid:
             ``[lon_min, lat_min, lon_max, lat_max]`` in the requested CRS.
         """
         if crs is None:
-            crs = self.crs
+            crs = self.model.crs
+        # The exterior is only computed when a grid is read; compute it on
+        # demand for grids that were built or modified in memory.
+        if getattr(self, "exterior", None) is None or self.exterior.empty:
+            self.get_exterior()
         lst = self.exterior.to_crs(crs=crs).total_bounds.tolist()
         dx = lst[2] - lst[0]
         dy = lst[3] - lst[1]
